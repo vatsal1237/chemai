@@ -10,6 +10,7 @@ from core.parser import parse_pdf
 from core.chunker import chunk_markdown
 from core.vectorstore import VectorStore
 from core.rag_chain import RAGChain
+from config.settings import GEMINI_API_KEY
 
 
 # ─── Page Config ──────────────────────────────────────────────────────────────
@@ -115,6 +116,23 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ─── API Key Verification ───────────────────────────────────────────────────
+if not GEMINI_API_KEY:
+    st.error("""
+    ### 🔑 GEMINI_API_KEY is not configured!
+    
+    To use this app:
+    - **On Streamlit Cloud:**
+      1. Click **Manage app** in the bottom-right corner.
+      2. Click the three dots `⋮` ➜ **Settings** ➜ **Secrets**.
+      3. Add your Gemini API key:
+         ```toml
+         GEMINI_API_KEY = "your_actual_gemini_api_key_here"
+         ```
+      4. Save and click **Reboot app**.
+    - **Locally:** Add `GEMINI_API_KEY=your_key` to your `.env` file.
+    """)
+    st.stop()
 
 # ─── Session State Init ──────────────────────────────────────────────────────
 if "store" not in st.session_state:
@@ -276,11 +294,15 @@ if prompt := st.chat_input("Ask about the paper..."):
         response_placeholder = st.empty()
         full_response = ""
 
-        for token in st.session_state.chain.ask_stream(prompt):
-            full_response += token
-            response_placeholder.markdown(full_response + "▌")
-
-        response_placeholder.markdown(full_response)
+        try:
+            for token in st.session_state.chain.ask_stream(prompt):
+                full_response += token
+                response_placeholder.markdown(full_response + "▌")
+            response_placeholder.markdown(full_response)
+        except Exception as e:
+            st.error(f"❌ Error during generation: {e}")
+            full_response = f"*(Error: {e})*"
+            response_placeholder.markdown(full_response)
 
         if raw_hits:
             with st.expander(f"Retrieved {len(raw_hits)} chunks"):

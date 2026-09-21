@@ -19,8 +19,21 @@ CHROMA_DIR = DATA_DIR / "chroma_db"
 PARSED_DIR.mkdir(parents=True, exist_ok=True)
 CHROMA_DIR.mkdir(parents=True, exist_ok=True)
 
+# ─── Helper for secrets (supports .env and Streamlit Cloud Secrets) ───────────
+def get_secret(key: str, default: str | None = None) -> str | None:
+    val = os.getenv(key)
+    if val:
+        return val
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return default
+
 # ─── Gemini API ────────────────────────────────────────────────────────────────
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 
 # ─── PDF Parsing ──────────────────────────────────────────────────────────────
 VISION_MODEL = os.getenv("VISION_MODEL", "gemini-2.5-flash")
