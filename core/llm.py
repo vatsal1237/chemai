@@ -1,13 +1,12 @@
 """
-LLM interface via Ollama REST API.
+LLM interface via Google Gemini REST API.
 Supports both streaming and non-streaming responses.
 """
 
 import json
 from typing import Generator
-
 import requests
-from config.settings import OLLAMA_BASE_URL, LLM_MODEL, LLM_TEMPERATURE
+from config.settings import GEMINI_API_KEY, LLM_MODEL, LLM_TEMPERATURE
 
 
 def query_llm(
@@ -17,36 +16,33 @@ def query_llm(
     stream: bool = False,
 ) -> str | Generator[str, None, None]:
     """
-    Send a prompt to the Ollama LLM and return the response.
-
-    Args:
-        prompt: User prompt text.
-        system_prompt: System-level instruction.
-        model: Ollama model name.
-        stream: If True, returns a generator yielding response tokens.
-
-    Returns:
-        Complete response string, or generator of token strings if streaming.
+    Send a prompt to the Gemini LLM and return the response.
     """
-    url = f"{OLLAMA_BASE_URL}/api/chat"
-
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY is not set.")
 
     payload = {
-        "model": model,
-        "messages": messages,
-        "stream": stream,
-        "options": {
-            "temperature": LLM_TEMPERATURE,
-        },
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": prompt}]
+            }
+        ],
+        "generationConfig": {
+            "temperature": LLM_TEMPERATURE
+        }
     }
 
+    if system_prompt:
+        payload["systemInstruction"] = {
+            "parts": [{"text": system_prompt}]
+        }
+
     if stream:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={GEMINI_API_KEY}"
         return _stream_response(url, payload)
     else:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
         return _blocking_response(url, payload)
 
 
@@ -55,7 +51,10 @@ def _blocking_response(url: str, payload: dict) -> str:
     response = requests.post(url, json=payload, timeout=300)
     response.raise_for_status()
     data = response.json()
-    return data["message"]["content"]
+    try:
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError):
+        return ""
 
 
 def _stream_response(url: str, payload: dict) -> Generator[str, None, None]:
@@ -65,12 +64,16 @@ def _stream_response(url: str, payload: dict) -> Generator[str, None, None]:
 
     for line in response.iter_lines():
         if line:
-            try:
-                data = json.loads(line)
-                token = data.get("message", {}).get("content", "")
-                if token:
-                    yield token
-                if data.get("done", False):
-                    break
-            except json.JSONDecodeError:
-                continue
+            line_str = line.decode('utf-8')
+            if line_str.startswith("data: "):
+                json_str = line_str[6:]
+                if json_str.strip() == "":
+                    continue
+                try:
+                    data = json.loads(json_str)
+                    if "candidates" in data and len(data["candidates"]) > 0:
+                        parts = data["candidates"][0].get("content", {}).get("parts", [])
+                        if parts and "text" in parts[0]:
+                            yield parts[0]["text"]
+                except json.JSONDecodeError:
+                    continue

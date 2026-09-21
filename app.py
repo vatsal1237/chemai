@@ -232,10 +232,10 @@ with st.sidebar:
 
     st.markdown("""
     <div class="stack-card">
-        <div class="stack-label">Stack</div>
+        <div class="stack-label">Cloud Stack</div>
         <div class="stack-value">
-            Qwen2.5-VL &middot; Llama 3 &middot; ChromaDB<br>
-            nomic-embed-text &middot; Ollama
+            Gemini 2.5 Flash (Vision & LLM)<br>
+            gemini-embedding-001 &middot; ChromaDB
         </div>
     </div>
     """, unsafe_allow_html=True)

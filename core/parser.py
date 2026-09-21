@@ -1,22 +1,16 @@
 """
-PDF → Markdown parser.
-Wraps parse_paper_qwen_vl.py and caches results to avoid re-parsing.
+PDF → Markdown parser using Google Gemini API.
+Caches results to avoid re-parsing.
 """
 
 import hashlib
+import json
+import base64
+import requests
 from pathlib import Path
+import fitz
 
-from config.settings import PARSED_DIR, OLLAMA_BASE_URL, VISION_MODEL, PARSE_DPI
-
-# Import functions from the existing parser
-import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from parse_paper_qwen_vl import (
-    extract_pdf_with_qwen_vl,
-    download_pdf,
-    parse_page_selection,
-)
-
+from config.settings import PARSED_DIR, GEMINI_API_KEY, VISION_MODEL, PARSE_DPI
 
 def _cache_key(pdf_path: str, pages: str | None) -> str:
     """Generate a deterministic cache filename from PDF path and page selection."""
@@ -25,14 +19,13 @@ def _cache_key(pdf_path: str, pages: str | None) -> str:
     stem = Path(pdf_path).stem
     return f"{stem}_{pdf_hash}_p{page_tag}.md"
 
-
 def parse_pdf(pdf_path: str, pages: str | None = None, force: bool = False) -> str:
     """
-    Parse a PDF into Markdown using Qwen2.5-VL.
+    Parse a PDF into Markdown using Google Gemini API.
 
     Args:
         pdf_path: Path to the PDF file.
-        pages: Page range string (e.g. '4-5', '1,3,5-7') or None for all pages.
+        pages: Page range string (ignored for now, does all pages) or None.
         force: If True, re-parse even if cached result exists.
 
     Returns:
@@ -46,17 +39,64 @@ def parse_pdf(pdf_path: str, pages: str | None = None, force: bool = False) -> s
         print(f"[+] Using cached parsed output: {cache_path}", flush=True)
         return cache_path.read_text(encoding="utf-8")
 
-    # Parse fresh
-    print(f"[+] Parsing PDF with Qwen2.5-VL (DPI={PARSE_DPI})...", flush=True)
-    output_path = str(cache_path)
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY is not set in environment or .env file.")
 
-    markdown = extract_pdf_with_qwen_vl(
-        pdf_path=pdf_path,
-        output_markdown_path=output_path,
-        model=VISION_MODEL,
-        api_base=OLLAMA_BASE_URL,
-        page_number=pages,
-    )
-
+    print(f"[+] Parsing PDF with Gemini API ({VISION_MODEL})...", flush=True)
+    doc = fitz.open(pdf_path)
+    
+    # Process all pages
+    page_nums = range(len(doc))
+    full_markdown = []
+    
+    # Gemini API URL
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{VISION_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    
+    for i in page_nums:
+        print(f"    Transcribing Page {i+1}/{len(doc)}...", flush=True)
+        page = doc[i]
+        pix = page.get_pixmap(dpi=PARSE_DPI)
+        img_data = pix.tobytes("jpeg")
+        b64_image = base64.b64encode(img_data).decode("utf-8")
+        
+        prompt = (
+            "You are an expert scientific document transcription assistant. "
+            "Please transcribe the following page into Markdown format. "
+            "For any figures, images, or charts, provide a detailed description "
+            "in the following format: \\n\\n**[Figure Description]:** <your detailed description>\\n\\n"
+            "Do not output anything other than the transcribed markdown."
+        )
+        
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inlineData": {
+                            "mimeType": "image/jpeg",
+                            "data": b64_image
+                        }
+                    }
+                ]
+            }],
+            "generationConfig": {
+                "temperature": 0.1
+            }
+        }
+        
+        response = requests.post(url, json=payload)
+        
+        if response.status_code == 200:
+            data = response.json()
+            try:
+                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                full_markdown.append(f"<!-- Page {i+1} -->\n{text}")
+            except (KeyError, IndexError):
+                print(f"[!] Error extracting text from Gemini response on page {i+1}")
+        else:
+            print(f"[!] API Error on page {i+1}: {response.status_code} {response.text}")
+            
+    final_text = "\n\n---\n\n".join(full_markdown)
+    cache_path.write_text(final_text, encoding="utf-8")
     print(f"[+] Parsed output cached at: {cache_path}", flush=True)
-    return markdown
+    return final_text

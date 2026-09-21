@@ -14,10 +14,9 @@ from config.settings import (
 )
 from core.vectorstore import VectorStore
 from core.retriever import retrieve
-from core.llm import query_llm, _stream_response
-import requests
-import json
-from config.settings import OLLAMA_BASE_URL, LLM_MODEL, LLM_TEMPERATURE
+from core.llm import query_llm
+import re
+from config.settings import LLM_MODEL, LLM_TEMPERATURE
 
 
 @dataclass
@@ -123,35 +122,12 @@ class RAGChain:
                 user_query=user_query,
             )
 
-            # Stream the final answer
+            # Stream the final answer using Gemini
             full_response = []
-            url = f"{OLLAMA_BASE_URL}/api/chat"
-            messages = [
-                {"role": "system", "content": RAG_SYSTEM_PROMPT},
-                {"role": "user", "content": new_prompt},
-            ]
-            payload = {
-                "model": LLM_MODEL,
-                "messages": messages,
-                "stream": True,
-                "options": {"temperature": LLM_TEMPERATURE},
-            }
-
-            response = requests.post(url, json=payload, timeout=300, stream=True)
-            response.raise_for_status()
-
-            for line in response.iter_lines():
-                if line:
-                    try:
-                        data = json.loads(line)
-                        token = data.get("message", {}).get("content", "")
-                        if token:
-                            full_response.append(token)
-                            yield token
-                        if data.get("done", False):
-                            break
-                    except json.JSONDecodeError:
-                        continue
+            
+            for token in query_llm(new_prompt, system_prompt=RAG_SYSTEM_PROMPT, stream=True):
+                full_response.append(token)
+                yield token
 
             final_answer = "".join(full_response)
         else:

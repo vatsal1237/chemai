@@ -1,47 +1,56 @@
 """
-Embedding generation via Ollama REST API.
-Uses nomic-embed-text for high-quality local embeddings.
+Embedding generation via Google Gemini REST API.
+Uses gemini-embedding-001.
 """
 
+import time
 import requests
-from config.settings import OLLAMA_BASE_URL, EMBEDDING_MODEL
+from config.settings import GEMINI_API_KEY, EMBEDDING_MODEL
 
 
-def get_embedding(text: str) -> list[float]:
+def get_embedding(text: str, retries: int = 3) -> list[float]:
     """
     Generate an embedding vector for a single text string.
-
-    Args:
-        text: Input text to embed.
-
-    Returns:
-        Embedding vector as list of floats.
+    Includes retry logic for transient API errors (429, 503).
     """
-    url = f"{OLLAMA_BASE_URL}/api/embed"
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY is not set.")
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{EMBEDDING_MODEL}:embedContent?key={GEMINI_API_KEY}"
     payload = {
-        "model": EMBEDDING_MODEL,
-        "input": text,
+        "model": f"models/{EMBEDDING_MODEL}",
+        "content": {
+            "parts": [{"text": text}]
+        }
     }
 
+    for attempt in range(retries):
+        response = requests.post(url, json=payload, timeout=60)
+
+        if response.status_code == 200:
+            data = response.json()
+            return data["embedding"]["values"]
+        elif response.status_code in (429, 503):
+            wait = 2 ** (attempt + 1)
+            print(f"    Rate limited (HTTP {response.status_code}), retrying in {wait}s...", flush=True)
+            time.sleep(wait)
+        else:
+            response.raise_for_status()
+
+    # Final attempt without catching
     response = requests.post(url, json=payload, timeout=60)
     response.raise_for_status()
-    data = response.json()
-
-    return data["embeddings"][0]
+    return response.json()["embedding"]["values"]
 
 
 def get_embeddings_batch(texts: list[str], batch_size: int = 32) -> list[list[float]]:
     """
     Generate embeddings for a batch of texts.
-    Processes in sub-batches to avoid memory issues.
-
-    Args:
-        texts: List of text strings to embed.
-        batch_size: Number of texts per API call.
-
-    Returns:
-        List of embedding vectors.
+    Uses individual embedContent calls with rate-limit handling.
     """
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY is not set.")
+
     all_embeddings = []
 
     for i in range(0, len(texts), batch_size):
@@ -50,16 +59,9 @@ def get_embeddings_batch(texts: list[str], batch_size: int = 32) -> list[list[fl
         total_batches = (len(texts) + batch_size - 1) // batch_size
         print(f"    Embedding batch {batch_num}/{total_batches}...", flush=True)
 
-        url = f"{OLLAMA_BASE_URL}/api/embed"
-        payload = {
-            "model": EMBEDDING_MODEL,
-            "input": batch,
-        }
-
-        response = requests.post(url, json=payload, timeout=120)
-        response.raise_for_status()
-        data = response.json()
-
-        all_embeddings.extend(data["embeddings"])
+        for text in batch:
+            emb = get_embedding(text)
+            all_embeddings.append(emb)
+            time.sleep(0.1)  # Small delay to avoid rate limits
 
     return all_embeddings
