@@ -234,6 +234,13 @@ with st.sidebar:
 
     st.markdown("---")
 
+    selected_model = st.selectbox(
+        "Gemini Model",
+        options=["gemini-2.5-flash", "gemini-3.1-pro-preview", "gemini-3.1-flash-lite"],
+        index=0,
+        help="Select Gemini model. Note that Pro preview models may require a billing-linked API key."
+    )
+
     if st.button("Clear Chat", use_container_width=True):
         st.session_state.messages = []
         st.session_state.chain.clear_history()
@@ -248,11 +255,11 @@ with st.sidebar:
 
     st.markdown("---")
 
-    st.markdown("""
+    st.markdown(f"""
     <div class="stack-card">
         <div class="stack-label">Cloud Stack</div>
         <div class="stack-value">
-            Gemini 2.5 Flash (Vision & LLM)<br>
+            {selected_model} (LLM)<br>
             gemini-embedding-001 &middot; ChromaDB
         </div>
     </div>
@@ -295,7 +302,7 @@ if prompt := st.chat_input("Ask about the paper..."):
         full_response = ""
 
         try:
-            for token in st.session_state.chain.ask_stream(prompt):
+            for token in st.session_state.chain.ask_stream(prompt, model=selected_model):
                 full_response += token
                 response_placeholder.markdown(full_response + "▌")
             response_placeholder.markdown(full_response)

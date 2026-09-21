@@ -12,7 +12,7 @@ from config.settings import GEMINI_API_KEY, LLM_MODEL, LLM_TEMPERATURE
 def query_llm(
     prompt: str,
     system_prompt: str = "",
-    model: str = LLM_MODEL,
+    model: str | None = None,
     stream: bool = False,
 ) -> str | Generator[str, None, None]:
     """
@@ -20,6 +20,8 @@ def query_llm(
     """
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY is not set.")
+
+    active_model = model or LLM_MODEL
 
     payload = {
         "contents": [
@@ -39,17 +41,22 @@ def query_llm(
         }
 
     if stream:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:streamGenerateContent?alt=sse&key={GEMINI_API_KEY}"
         return _stream_response(url, payload)
     else:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:generateContent?key={GEMINI_API_KEY}"
         return _blocking_response(url, payload)
 
 
 def _blocking_response(url: str, payload: dict) -> str:
     """Make a non-streaming request and return the full response."""
     response = requests.post(url, json=payload, timeout=300)
-    response.raise_for_status()
+    if response.status_code != 200:
+        try:
+            err = response.json().get("error", {}).get("message", response.text)
+        except Exception:
+            err = response.text
+        raise RuntimeError(f"Gemini API error ({response.status_code}): {err}")
     data = response.json()
     try:
         return data["candidates"][0]["content"]["parts"][0]["text"]
@@ -60,7 +67,12 @@ def _blocking_response(url: str, payload: dict) -> str:
 def _stream_response(url: str, payload: dict) -> Generator[str, None, None]:
     """Make a streaming request and yield response tokens."""
     response = requests.post(url, json=payload, timeout=300, stream=True)
-    response.raise_for_status()
+    if response.status_code != 200:
+        try:
+            err = response.json().get("error", {}).get("message", response.text)
+        except Exception:
+            err = response.text
+        raise RuntimeError(f"Gemini API error ({response.status_code}): {err}")
 
     for line in response.iter_lines():
         if line:

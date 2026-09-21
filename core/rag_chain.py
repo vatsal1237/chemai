@@ -78,16 +78,16 @@ class RAGChain:
 
         return answer
 
-    def ask_stream(self, user_query: str):
+    def ask_stream(self, user_query: str, model: str | None = None) -> Generator[str, None, None]:
         """
-        Process a user query with streaming response.
-        Yields tokens as they come from the LLM.
+        Ask a question and stream the answer token-by-token.
 
         Note: Re-retrieval is handled non-streaming since we need
         the full response to detect RETRIEVE_WITH_CONTEXT.
 
         Args:
             user_query: The user's question.
+            model: Optional Gemini model override.
 
         Yields:
             Response tokens as strings.
@@ -104,7 +104,7 @@ class RAGChain:
         )
 
         # Step 3: First LLM call — non-streaming to check for re-retrieval
-        first_answer = query_llm(prompt, system_prompt=RAG_SYSTEM_PROMPT)
+        first_answer = query_llm(prompt, system_prompt=RAG_SYSTEM_PROMPT, model=model)
 
         # Step 4: Check for re-retrieval
         re_retrieval_match = re.search(
@@ -125,7 +125,7 @@ class RAGChain:
             # Stream the final answer using Gemini
             full_response = []
             
-            for token in query_llm(new_prompt, system_prompt=RAG_SYSTEM_PROMPT, stream=True):
+            for token in query_llm(new_prompt, system_prompt=RAG_SYSTEM_PROMPT, model=model, stream=True):
                 full_response.append(token)
                 yield token
 
