@@ -40,8 +40,8 @@ VISION_MODEL = os.getenv("VISION_MODEL", "gemini-2.5-flash")
 PARSE_DPI = int(os.getenv("PARSE_DPI", "300"))
 
 # ─── Embedding ────────────────────────────────────────────────────────────────
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "gemini-embedding-001")
-EMBEDDING_DIM = 768  # gemini-embedding-001 dimension
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "gemini-embedding-2")
+EMBEDDING_DIM = 3072  # gemini-embedding-2 dimension
 
 # ─── Chunking ─────────────────────────────────────────────────────────────────
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "500"))         # target tokens per chunk
@@ -54,7 +54,7 @@ TOP_K = int(os.getenv("TOP_K", "5"))
 SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.3"))
 
 # ─── LLM (Q&A) ───────────────────────────────────────────────────────────────
-LLM_MODEL = os.getenv("LLM_MODEL", "gemini-2.5-flash")
+LLM_MODEL = os.getenv("LLM_MODEL", "gemini-3.1-flash-lite")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.1"))
 MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "10"))
 

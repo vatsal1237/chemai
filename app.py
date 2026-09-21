@@ -236,7 +236,7 @@ with st.sidebar:
 
     selected_model = st.selectbox(
         "Gemini Model",
-        options=["gemini-2.5-flash", "gemini-3.1-pro-preview", "gemini-3.1-flash-lite"],
+        options=["gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-3.1-pro-preview"],
         index=0,
         help="Select Gemini model. Note that Pro preview models may require a billing-linked API key."
     )
@@ -260,7 +260,7 @@ with st.sidebar:
         <div class="stack-label">Cloud Stack</div>
         <div class="stack-value">
             {selected_model} (LLM)<br>
-            gemini-embedding-001 &middot; ChromaDB
+            gemini-embedding-2 &middot; ChromaDB
         </div>
     </div>
     """, unsafe_allow_html=True)
