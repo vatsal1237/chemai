@@ -208,12 +208,21 @@ with st.sidebar:
         if not st.session_state.store.is_ingested(pdf_path):
             st.info("Auto-processing document...")
 
-            with st.spinner("Parsing PDF (uses cache if available)..."):
-                try:
-                    markdown = parse_pdf(pdf_path)
-                except Exception as e:
-                    st.error(f"Parse error: {e}")
-                    st.stop()
+            progress_text = "Parsing PDF pages..."
+            progress_bar = st.progress(0.0, text=progress_text)
+            
+            def on_parse_progress(current: int, total: int):
+                pct = current / total if total > 0 else 0.0
+                if pct > 1.0: pct = 1.0
+                text = f"Transcribing page {current+1} of {total}..." if current < total else "Transcription complete! Processing text..."
+                progress_bar.progress(pct, text=text)
+
+            try:
+                markdown = parse_pdf(pdf_path, progress_callback=on_parse_progress)
+                progress_bar.empty()
+            except Exception as e:
+                st.error(f"Parse error: {e}")
+                st.stop()
             
             import re
             failed_pages = [int(m) for m in re.findall(r'<!-- FAILED_PAGE_(\d+) -->', markdown)]

@@ -9,6 +9,7 @@ import base64
 import requests
 from pathlib import Path
 import fitz
+from typing import Callable, Optional
 
 from config.settings import PARSED_DIR, GEMINI_API_KEY, VISION_MODEL, PARSE_DPI
 
@@ -19,7 +20,7 @@ def _cache_key(pdf_path: str, pages: str | None) -> str:
     stem = Path(pdf_path).stem
     return f"{stem}_{pdf_hash}_p{page_tag}.md"
 
-def parse_pdf(pdf_path: str, pages: str | None = None, force: bool = False) -> str:
+def parse_pdf(pdf_path: str, pages: str | None = None, force: bool = False, progress_callback: Optional[Callable[[int, int], None]] = None) -> str:
     """
     Parse a PDF into Markdown using Google Gemini API.
 
@@ -37,6 +38,8 @@ def parse_pdf(pdf_path: str, pages: str | None = None, force: bool = False) -> s
     # Return cached if available
     if cache_path.exists() and not force:
         print(f"[+] Using cached parsed output: {cache_path}", flush=True)
+        if progress_callback:
+            progress_callback(1, 1) # simulate 100% completion for cache
         return cache_path.read_text(encoding="utf-8")
 
     if not GEMINI_API_KEY:
@@ -53,6 +56,8 @@ def parse_pdf(pdf_path: str, pages: str | None = None, force: bool = False) -> s
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{VISION_MODEL}:generateContent?key={GEMINI_API_KEY}"
     
     for i in page_nums:
+        if progress_callback:
+            progress_callback(i, len(doc))
         print(f"    Transcribing Page {i+1}/{len(doc)}...", flush=True)
         page = doc[i]
         pix = page.get_pixmap(dpi=PARSE_DPI)
@@ -100,6 +105,9 @@ def parse_pdf(pdf_path: str, pages: str | None = None, force: bool = False) -> s
             else:
                 full_markdown.append(f"<!-- FAILED_PAGE_{i+1} -->\n> ⚠️ **Page {i+1} was not parsed due to API Error {response.status_code}.**")
             
+    if progress_callback:
+        progress_callback(len(doc), len(doc))
+        
     final_text = "\n\n---\n\n".join(full_markdown)
     cache_path.write_text(final_text, encoding="utf-8")
     print(f"[+] Parsed output cached at: {cache_path}", flush=True)
