@@ -214,6 +214,11 @@ with st.sidebar:
                 except Exception as e:
                     st.error(f"Parse error: {e}")
                     st.stop()
+            
+            import re
+            failed_pages = [int(m) for m in re.findall(r'<!-- FAILED_PAGE_(\d+) -->', markdown)]
+            if failed_pages:
+                st.warning(f"⚠️ **Note:** Pages {', '.join(map(str, failed_pages))} were skipped due to Gemini API rate limits/quota.")
 
             with st.spinner("Chunking text..."):
                 chunks = chunk_markdown(markdown)

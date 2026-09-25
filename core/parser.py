@@ -95,6 +95,10 @@ def parse_pdf(pdf_path: str, pages: str | None = None, force: bool = False) -> s
                 print(f"[!] Error extracting text from Gemini response on page {i+1}")
         else:
             print(f"[!] API Error on page {i+1}: {response.status_code} {response.text}")
+            if response.status_code == 429:
+                full_markdown.append(f"<!-- FAILED_PAGE_{i+1} -->\n> ⚠️ **Page {i+1} was not parsed due to Gemini API rate limits/quota.**")
+            else:
+                full_markdown.append(f"<!-- FAILED_PAGE_{i+1} -->\n> ⚠️ **Page {i+1} was not parsed due to API Error {response.status_code}.**")
             
     final_text = "\n\n---\n\n".join(full_markdown)
     cache_path.write_text(final_text, encoding="utf-8")
