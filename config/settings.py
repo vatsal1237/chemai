@@ -36,7 +36,7 @@ def get_secret(key: str, default: str | None = None) -> str | None:
 GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 
 # ─── PDF Parsing ──────────────────────────────────────────────────────────────
-VISION_MODEL = os.getenv("VISION_MODEL", "gemini-2.5-flash")
+VISION_MODEL = os.getenv("VISION_MODEL", "gemini-3.1-flash-lite")
 PARSE_DPI = int(os.getenv("PARSE_DPI", "300"))
 
 # ─── Embedding ────────────────────────────────────────────────────────────────
