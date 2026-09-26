@@ -282,6 +282,16 @@ with st.sidebar:
 
 # ─── Main Chat Area ──────────────────────────────────────────────────────────
 
+if "active_pdf" in st.session_state and st.session_state.ingested:
+    with st.expander("📄 View Extracted Document Markdown (Raw)"):
+        from core.parser import parse_pdf
+        try:
+            cached_markdown = parse_pdf(st.session_state.active_pdf)
+            st.markdown(cached_markdown)
+        except Exception:
+            st.info("No cached text available.")
+
+
 # Display existing messages
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
