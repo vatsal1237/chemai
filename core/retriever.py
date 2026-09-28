@@ -45,7 +45,7 @@ def retrieve_multi(
     top_k: int = TOP_K,
     threshold: float = SIMILARITY_THRESHOLD,
     final_k: int | None = None,
-) -> tuple[str, list[dict]]:
+) -> tuple[str, list[dict], dict[str, list[dict]]]:
     """
     Retrieve relevant chunks using MULTIPLE queries, merge and deduplicate.
     Each query retrieves top_k results; results are merged by best similarity
@@ -59,33 +59,38 @@ def retrieve_multi(
         final_k: Max total results after merging (defaults to top_k).
 
     Returns:
-        Tuple of (formatted context string, raw hits list).
+        Tuple of (formatted context string, merged hits list, per-query hits dict).
     """
     if final_k is None:
         final_k = top_k
 
     # Collect all hits across queries, keyed by chunk text to deduplicate
     seen: dict[str, dict] = {}
+    per_query_hits: dict[str, list[dict]] = {}
 
     for q in queries:
         raw_hits = store.search(q, top_k=top_k)
+        query_filtered = []
         for hit in raw_hits:
             sim = 1.0 - hit["distance"]
             if sim < threshold:
                 continue
 
+            query_filtered.append(hit)
             chunk_key = hit["text"][:200]  # dedup key
             if chunk_key not in seen or sim > (1.0 - seen[chunk_key]["distance"]):
                 seen[chunk_key] = hit  # keep the best similarity score
 
+        per_query_hits[q] = query_filtered
+
     if not seen:
-        return "No relevant chunks found.", []
+        return "No relevant chunks found.", [], per_query_hits
 
     # Sort by similarity (best first) and take final_k
     merged = sorted(seen.values(), key=lambda h: h["distance"])[:final_k]
 
     context_str = _format_hits(merged)
-    return context_str, merged
+    return context_str, merged, per_query_hits
 
 
 def _format_hits(hits: list[dict]) -> str:

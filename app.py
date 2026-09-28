@@ -297,14 +297,20 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-        if msg["role"] == "assistant" and msg.get("chunks"):
-            with st.expander(f"Retrieved {len(msg['chunks'])} chunks"):
-                for i, chunk in enumerate(msg["chunks"], 1):
-                    page = chunk.get("metadata", {}).get("page", "?")
-                    heading = chunk.get("metadata", {}).get("heading", "")
-                    sim = 1.0 - chunk.get("distance", 0)
-                    st.markdown(f"**Chunk {i}** — Page {page} | {heading} | Sim: {sim:.2f}")
-                    st.code(chunk.get("text", "")[:500], language=None)
+        if msg["role"] == "assistant":
+            if msg.get("search_queries"):
+                with st.expander(f"🔍 Search queries used"):
+                    for idx, q in enumerate(msg["search_queries"], 1):
+                        st.markdown(f"**Query {idx}:** `{q}`")
+
+            if msg.get("chunks"):
+                with st.expander(f"📚 Retrieved {len(msg['chunks'])} chunks"):
+                    for i, chunk in enumerate(msg["chunks"], 1):
+                        page = chunk.get("metadata", {}).get("page", "?")
+                        heading = chunk.get("metadata", {}).get("heading", "")
+                        sim = 1.0 - chunk.get("distance", 0)
+                        st.markdown(f"**Chunk {i}** — Page {page} | {heading} | Sim: {sim:.2f}")
+                        st.code(chunk.get("text", "")[:500], language=None)
 
 # Chat input
 if prompt := st.chat_input("Ask about the paper..."):
@@ -321,8 +327,34 @@ if prompt := st.chat_input("Ask about the paper..."):
     with st.chat_message("assistant"):
         from core.retriever import retrieve_multi
         from core.query_rewriter import rewrite_query
-        search_queries = rewrite_query(prompt, model=selected_model)
-        _, raw_hits = retrieve_multi(st.session_state.store, search_queries)
+
+        with st.spinner("🔄 Rewriting query for better search..."):
+            search_queries = rewrite_query(prompt, model=selected_model)
+
+        _, raw_hits, per_query_hits = retrieve_multi(st.session_state.store, search_queries)
+
+        # Show rewritten queries and per-query results
+        with st.expander("🔍 Query Rewriting & Retrieval Details", expanded=False):
+            st.markdown("**Original question:**")
+            st.code(prompt, language=None)
+
+            st.markdown("**Rewritten search queries:**")
+            for idx, q in enumerate(search_queries, 1):
+                hits_for_q = per_query_hits.get(q, [])
+                st.markdown(f"---")
+                st.markdown(f"**Query {idx}:** `{q}`  \n*→ {len(hits_for_q)} chunks retrieved*")
+                if hits_for_q:
+                    for j, chunk in enumerate(hits_for_q[:5], 1):
+                        page = chunk.get("metadata", {}).get("page", "?")
+                        heading = chunk.get("metadata", {}).get("heading", "")
+                        sim = 1.0 - chunk.get("distance", 0)
+                        label = f"Page {page}"
+                        if heading:
+                            label += f" | {heading}"
+                        st.markdown(f"  `Chunk {j}` — {label} — Sim: **{sim:.2f}**")
+
+            st.markdown("---")
+            st.markdown(f"**After merge & dedup:** {len(raw_hits)} unique chunks sent to LLM")
 
         response_placeholder = st.empty()
         full_response = ""
@@ -338,7 +370,7 @@ if prompt := st.chat_input("Ask about the paper..."):
             response_placeholder.markdown(full_response)
 
         if raw_hits:
-            with st.expander(f"Retrieved {len(raw_hits)} chunks"):
+            with st.expander(f"📚 Final {len(raw_hits)} merged chunks"):
                 for i, chunk in enumerate(raw_hits, 1):
                     page = chunk.get("metadata", {}).get("page", "?")
                     heading = chunk.get("metadata", {}).get("heading", "")
@@ -350,4 +382,5 @@ if prompt := st.chat_input("Ask about the paper..."):
         "role": "assistant",
         "content": full_response,
         "chunks": raw_hits,
+        "search_queries": search_queries,
     })

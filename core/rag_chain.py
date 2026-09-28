@@ -55,7 +55,7 @@ class RAGChain:
         print(f"[+] Rewritten queries: {search_queries}", flush=True)
 
         # Step 2: Multi-query retrieval
-        context_str, hits = retrieve_multi(self.store, search_queries)
+        context_str, hits, _ = retrieve_multi(self.store, search_queries)
 
         # Step 2: Build the prompt
         chat_history = self._format_history()
@@ -101,7 +101,7 @@ class RAGChain:
         print(f"[+] Rewritten queries: {search_queries}", flush=True)
 
         # Step 2: Multi-query retrieval
-        context_str, hits = retrieve_multi(self.store, search_queries)
+        context_str, hits, _ = retrieve_multi(self.store, search_queries)
 
         # Step 2: Build prompt
         chat_history = self._format_history()
