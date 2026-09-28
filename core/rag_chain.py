@@ -6,6 +6,7 @@ re-retrieval loop from the decision rules.
 
 import re
 from dataclasses import dataclass, field
+from typing import Generator
 
 from config.settings import (
     RAG_SYSTEM_PROMPT,
