@@ -319,8 +319,10 @@ if prompt := st.chat_input("Ask about the paper..."):
 
     # Generate response
     with st.chat_message("assistant"):
-        from core.retriever import retrieve as do_retrieve
-        _, raw_hits = do_retrieve(st.session_state.store, prompt)
+        from core.retriever import retrieve_multi
+        from core.query_rewriter import rewrite_query
+        search_queries = rewrite_query(prompt, model=selected_model)
+        _, raw_hits = retrieve_multi(st.session_state.store, search_queries)
 
         response_placeholder = st.empty()
         full_response = ""

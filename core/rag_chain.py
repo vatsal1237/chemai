@@ -13,9 +13,9 @@ from config.settings import (
     MAX_HISTORY_TURNS,
 )
 from core.vectorstore import VectorStore
-from core.retriever import retrieve
+from core.retriever import retrieve, retrieve_multi
+from core.query_rewriter import rewrite_query
 from core.llm import query_llm
-import re
 from config.settings import LLM_MODEL, LLM_TEMPERATURE
 
 
@@ -50,8 +50,12 @@ class RAGChain:
         Returns:
             The assistant's answer string.
         """
-        # Step 1: Retrieve relevant chunks
-        context_str, hits = retrieve(self.store, user_query)
+        # Step 1: Rewrite query for better retrieval
+        search_queries = rewrite_query(user_query)
+        print(f"[+] Rewritten queries: {search_queries}", flush=True)
+
+        # Step 2: Multi-query retrieval
+        context_str, hits = retrieve_multi(self.store, search_queries)
 
         # Step 2: Build the prompt
         chat_history = self._format_history()
@@ -92,8 +96,12 @@ class RAGChain:
         Yields:
             Response tokens as strings.
         """
-        # Step 1: Retrieve
-        context_str, hits = retrieve(self.store, user_query)
+        # Step 1: Rewrite query for better retrieval
+        search_queries = rewrite_query(user_query, model=model)
+        print(f"[+] Rewritten queries: {search_queries}", flush=True)
+
+        # Step 2: Multi-query retrieval
+        context_str, hits = retrieve_multi(self.store, search_queries)
 
         # Step 2: Build prompt
         chat_history = self._format_history()

@@ -50,8 +50,8 @@ MAX_CHUNK_CHARS = CHUNK_SIZE * 4                          # rough char estimate
 OVERLAP_CHARS = CHUNK_OVERLAP * 4
 
 # ─── Retrieval ────────────────────────────────────────────────────────────────
-TOP_K = int(os.getenv("TOP_K", "5"))
-SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.3"))
+TOP_K = int(os.getenv("TOP_K", "10"))
+SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.4"))
 
 # ─── LLM (Q&A) ───────────────────────────────────────────────────────────────
 LLM_MODEL = os.getenv("LLM_MODEL", "gemini-3.1-flash-lite")

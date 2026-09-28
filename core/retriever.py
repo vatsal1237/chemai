@@ -1,6 +1,7 @@
 """
 Retriever module.
 Wraps VectorStore search with similarity threshold filtering and context formatting.
+Supports multi-query retrieval for better recall.
 """
 
 from core.vectorstore import VectorStore
@@ -14,7 +15,7 @@ def retrieve(
     threshold: float = SIMILARITY_THRESHOLD,
 ) -> tuple[str, list[dict]]:
     """
-    Retrieve relevant chunks for a query, filtered by similarity threshold.
+    Retrieve relevant chunks for a single query, filtered by similarity threshold.
 
     Args:
         store: VectorStore instance.
@@ -34,9 +35,63 @@ def retrieve(
     if not filtered:
         return "No relevant chunks found.", []
 
-    # Format as numbered context blocks
+    context_str = _format_hits(filtered)
+    return context_str, filtered
+
+
+def retrieve_multi(
+    store: VectorStore,
+    queries: list[str],
+    top_k: int = TOP_K,
+    threshold: float = SIMILARITY_THRESHOLD,
+    final_k: int | None = None,
+) -> tuple[str, list[dict]]:
+    """
+    Retrieve relevant chunks using MULTIPLE queries, merge and deduplicate.
+    Each query retrieves top_k results; results are merged by best similarity
+    and capped at final_k total results.
+
+    Args:
+        store: VectorStore instance.
+        queries: List of search queries (from query rewriter).
+        top_k: Max results per query.
+        threshold: Minimum similarity to include.
+        final_k: Max total results after merging (defaults to top_k).
+
+    Returns:
+        Tuple of (formatted context string, raw hits list).
+    """
+    if final_k is None:
+        final_k = top_k
+
+    # Collect all hits across queries, keyed by chunk text to deduplicate
+    seen: dict[str, dict] = {}
+
+    for q in queries:
+        raw_hits = store.search(q, top_k=top_k)
+        for hit in raw_hits:
+            sim = 1.0 - hit["distance"]
+            if sim < threshold:
+                continue
+
+            chunk_key = hit["text"][:200]  # dedup key
+            if chunk_key not in seen or sim > (1.0 - seen[chunk_key]["distance"]):
+                seen[chunk_key] = hit  # keep the best similarity score
+
+    if not seen:
+        return "No relevant chunks found.", []
+
+    # Sort by similarity (best first) and take final_k
+    merged = sorted(seen.values(), key=lambda h: h["distance"])[:final_k]
+
+    context_str = _format_hits(merged)
+    return context_str, merged
+
+
+def _format_hits(hits: list[dict]) -> str:
+    """Format a list of hits into a numbered context string."""
     context_parts = []
-    for i, hit in enumerate(filtered, 1):
+    for i, hit in enumerate(hits, 1):
         page = hit["metadata"].get("page", "?")
         heading = hit["metadata"].get("heading", "")
         similarity = 1.0 - hit["distance"]
@@ -48,5 +103,4 @@ def retrieve(
 
         context_parts.append(f"{header}\n{hit['text']}")
 
-    context_str = "\n\n".join(context_parts)
-    return context_str, filtered
+    return "\n\n".join(context_parts)
