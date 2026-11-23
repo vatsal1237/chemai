@@ -9,6 +9,7 @@ import time
 import json
 import uuid
 import asyncio
+import threading
 from typing import Optional, AsyncGenerator, Any
 from pathlib import Path
 
@@ -30,6 +31,7 @@ from core.vectorstore import VectorStore
 from core.parser import parse_pdf
 from core.chunker import chunk_parent_child
 from core.agent_graph import ChemAgentGraph
+from core.gap_finder_graph import GapFinderGraph
 
 # ---------------------------------------------------------------------------
 # App initialization & CORS
@@ -53,6 +55,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 store = VectorStore()
 agent_graph = ChemAgentGraph(store=store)
+gap_graph = GapFinderGraph(store=store)
 
 # Sequential inference lock: protects local GPU/Metal VRAM from concurrent thrashing
 # Multiple users can connect simultaneously; requests are queued and processed in order
@@ -102,6 +105,12 @@ class ChatCompletionResponse(BaseModel):
     model: str = MODEL_ID
     choices: list[Choice]
     usage: UsageInfo = Field(default_factory=UsageInfo)
+
+
+class GapReportRequest(BaseModel):
+    topic: str = Field(..., min_length=3, max_length=300)
+    max_papers: Optional[int] = Field(default=None, ge=3, le=30)
+    include_local: bool = True
 
 
 class ModelData(BaseModel):
@@ -362,6 +371,55 @@ async def web_ui():
             font-style: italic;
             line-height: 1.4;
         }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 4px; background: #0b0f19; padding: 4px; border-radius: 8px; border: 1px solid var(--border); }
+        .tab {
+            background: transparent; color: var(--text-muted); border: none; padding: 6px 14px;
+            border-radius: 6px; font-weight: 600; font-size: 0.85rem; cursor: pointer; font-family: inherit;
+        }
+        .tab:hover { color: var(--text-main); }
+        .tab.active { background: var(--accent); color: white; }
+        .hidden { display: none !important; }
+
+        /* Gap Finder */
+        .gap-area { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 18px; }
+        .gap-intro h2 { font-size: 1.15rem; color: #e0e7ff; margin-bottom: 6px; }
+        .gap-intro p { color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; }
+        .gap-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .gap-form input[type=text] {
+            flex: 1; min-width: 240px; background: #1f2937; border: 1px solid #374151; border-radius: 8px;
+            color: white; padding: 12px 16px; font-size: 0.95rem; outline: none; font-family: inherit;
+        }
+        .gap-form input[type=text]:focus { border-color: var(--accent); }
+        .gap-form select, .gap-form label { color: var(--text-muted); font-size: 0.85rem; }
+        .gap-form select { background: #1f2937; border: 1px solid #374151; border-radius: 6px; color: white; padding: 8px; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn.secondary { background: #374151; }
+        .btn.secondary:hover { background: #4b5563; }
+        .phase-list { list-style: none; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; }
+        .phase-list li { padding: 6px 0; font-size: 0.88rem; color: #6b7280; display: flex; gap: 10px; }
+        .phase-list li .icon { width: 18px; flex-shrink: 0; text-align: center; }
+        .phase-list li.running { color: #c7d2fe; }
+        .phase-list li.done { color: #d1d5db; }
+        .phase-list li .detail { display: block; color: var(--text-muted); font-size: 0.8rem; margin-top: 2px; }
+        .phase-list li.running .icon::before { content: '◐'; display: inline-block; animation: spin 1s linear infinite; }
+        .phase-list li.done .icon::before { content: '✓'; color: #10b981; }
+        .phase-list li.pending .icon::before { content: '○'; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .gap-report {
+            background: var(--bubble-bot); border: 1px solid var(--border); border-radius: 12px;
+            padding: 22px 26px; line-height: 1.6; font-size: 0.93rem;
+        }
+        .gap-report h1 { font-size: 1.3rem; color: #e0e7ff; margin-bottom: 10px; }
+        .gap-report h2 { font-size: 1.08rem; color: #c7d2fe; margin: 22px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #374151; }
+        .gap-report h3 { font-size: 0.95rem; color: #e0e7ff; margin: 14px 0 6px; }
+        .gap-report ul, .gap-report ol { padding-left: 22px; margin: 6px 0; }
+        .gap-report li { margin: 4px 0; }
+        .gap-report a { color: #a5b4fc; }
+        .gap-report table { display: block; overflow-x: auto; font-size: 0.82rem; }
+        .gap-actions { display: flex; gap: 10px; }
+        .gap-error { color: #ef4444; font-size: 0.9rem; }
     </style>
 </head>
 <body>
@@ -370,6 +428,10 @@ async def web_ui():
             <h1>🧪 Chem-RAG Agent</h1>
             <span class="badge">LangGraph + Parent-Doc</span>
         </div>
+        <nav class="tabs" role="tablist">
+            <button class="tab active" id="tabChat" onclick="switchTab('chat')">💬 Chat</button>
+            <button class="tab" id="tabGap" onclick="switchTab('gap')">🔍 Gap Finder</button>
+        </nav>
         <div class="stats" id="dbStats">Loading database metrics...</div>
     </header>
 
@@ -408,6 +470,32 @@ async def web_ui():
                 <textarea id="promptInput" placeholder="Ask a chemistry question (e.g. What is the structure and synthesis of fullerene C60?)..." onkeydown="handleKey(event)"></textarea>
                 <button class="btn" id="sendBtn" onclick="sendMessage()">Send</button>
             </div>
+        </div>
+
+        <div class="gap-area hidden" id="gapArea">
+            <div class="gap-intro">
+                <h2>Knowledge Gap Finder</h2>
+                <p>Type a research topic. The agents search OpenAlex and your uploaded PDFs, read the abstracts into a Lit Gap Table, detect patterns, and report <strong>population</strong>, <strong>variable</strong>, <strong>method</strong> and <strong>contradiction</strong> gaps with candidate research questions. Runs on the local model, so expect 2&ndash;5 minutes.</p>
+            </div>
+            <div class="gap-form">
+                <input type="text" id="gapTopic" placeholder="e.g. perovskite solar cell stability under humidity" maxlength="300" onkeydown="if (event.key === 'Enter') runGapReport()">
+                <label>Papers
+                    <select id="gapMax">
+                        <option value="8">8 (fast)</option>
+                        <option value="15" selected>15</option>
+                        <option value="25">25 (slow)</option>
+                    </select>
+                </label>
+                <label><input type="checkbox" id="gapLocal" checked> Include uploaded PDFs</label>
+                <button class="btn" id="gapBtn" onclick="runGapReport()">Find Gaps</button>
+            </div>
+            <ul class="phase-list hidden" id="phaseList"></ul>
+            <div class="gap-error hidden" id="gapError"></div>
+            <div class="gap-actions hidden" id="gapActions">
+                <button class="btn secondary" onclick="downloadReport()">⬇ Download .md</button>
+                <button class="btn secondary" onclick="copyReport()" id="copyBtn">Copy Markdown</button>
+            </div>
+            <div class="gap-report hidden" id="gapReport"></div>
         </div>
     </div>
 
@@ -517,6 +605,145 @@ async def web_ui():
             messagesDiv.appendChild(div);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
             return div;
+        }
+
+        // ─── Tabs ─────────────────────────────────────────────────────────
+        function switchTab(tab) {
+            const isGap = tab === 'gap';
+            document.querySelector('.chat-area').classList.toggle('hidden', isGap);
+            document.getElementById('gapArea').classList.toggle('hidden', !isGap);
+            document.getElementById('tabChat').classList.toggle('active', !isGap);
+            document.getElementById('tabGap').classList.toggle('active', isGap);
+            try { localStorage.setItem('chemrag-tab', tab); } catch (e) {}
+            if (isGap) document.getElementById('gapTopic').focus();
+        }
+        try { if (localStorage.getItem('chemrag-tab') === 'gap') switchTab('gap'); } catch (e) {}
+
+        // ─── Knowledge Gap Finder ─────────────────────────────────────────
+        let gapMarkdown = '';
+        let gapTopicUsed = '';
+
+        function escapeHtml(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function phaseItem(ev) {
+            let li = document.getElementById('phase-' + ev.phase);
+            if (!li) {
+                li = document.createElement('li');
+                li.id = 'phase-' + ev.phase;
+                li.innerHTML = '<span class="icon"></span><span><span class="label"></span><span class="detail"></span></span>';
+                document.getElementById('phaseList').appendChild(li);
+            }
+            li.querySelector('.label').textContent = ev.label;
+            return li;
+        }
+
+        function handleGapEvent(ev) {
+            const err = document.getElementById('gapError');
+            if (ev.type === 'queued') {
+                if (ev.position > 1) {
+                    err.classList.remove('hidden');
+                    err.style.color = '#a5b4fc';
+                    err.textContent = 'Waiting for ' + (ev.position - 1) + ' other request(s) to finish on the local model...';
+                }
+            } else if (ev.type === 'progress') {
+                err.classList.add('hidden');
+                const li = phaseItem(ev);
+                li.className = ev.status === 'done' ? 'done' : 'running';
+                if (ev.detail) li.querySelector('.detail').textContent = ev.detail;
+            } else if (ev.type === 'report') {
+                gapMarkdown = ev.markdown;
+                const box = document.getElementById('gapReport');
+                // Escape raw HTML from paper titles / model output before rendering Markdown
+                box.innerHTML = marked.parse(escapeHtml(gapMarkdown));
+                box.querySelectorAll('a').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer'; });
+                box.classList.remove('hidden');
+                document.getElementById('gapActions').classList.remove('hidden');
+                if (window.renderMathInElement) renderMathInElement(box, { throwOnError: false });
+                box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else if (ev.type === 'error') {
+                err.classList.remove('hidden');
+                err.style.color = '#ef4444';
+                err.textContent = ev.message;
+                document.querySelectorAll('#phaseList li.running').forEach(li => li.className = 'pending');
+            }
+        }
+
+        async function runGapReport() {
+            const topic = document.getElementById('gapTopic').value.trim();
+            if (topic.length < 3) { document.getElementById('gapTopic').focus(); return; }
+
+            const btn = document.getElementById('gapBtn');
+            btn.disabled = true;
+            btn.textContent = 'Running...';
+            gapMarkdown = '';
+            gapTopicUsed = topic;
+            document.getElementById('phaseList').innerHTML = '';
+            document.getElementById('phaseList').classList.remove('hidden');
+            ['gapReport', 'gapActions', 'gapError'].forEach(id => document.getElementById(id).classList.add('hidden'));
+
+            try {
+                const res = await fetch('/v1/gap-report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        topic: topic,
+                        max_papers: parseInt(document.getElementById('gapMax').value, 10),
+                        include_local: document.getElementById('gapLocal').checked
+                    })
+                });
+                if (!res.ok) {
+                    let detail = 'Request failed with ' + res.status;
+                    try { const j = await res.json(); if (j.detail) detail = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail); } catch (e) {}
+                    throw new Error(detail);
+                }
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    // SSE events are separated by a blank line; keep any partial event in the buffer
+                    const parts = buffer.split('\\n\\n');
+                    buffer = parts.pop();
+                    for (const part of parts) {
+                        if (!part.startsWith('data: ')) continue;  // skip keepalive comments
+                        try { handleGapEvent(JSON.parse(part.slice(6))); } catch (e) {}
+                    }
+                }
+                if (!gapMarkdown && document.getElementById('gapError').classList.contains('hidden')) {
+                    handleGapEvent({ type: 'error', message: 'The connection closed before the report finished. Please try again.' });
+                }
+            } catch (err) {
+                handleGapEvent({ type: 'error', message: 'Error: ' + err.message });
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Find Gaps';
+            }
+        }
+
+        function downloadReport() {
+            if (!gapMarkdown) return;
+            const slug = gapTopicUsed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'report';
+            const blob = new Blob([gapMarkdown], { type: 'text/markdown' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'gap-report-' + slug + '.md';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        }
+
+        async function copyReport() {
+            if (!gapMarkdown) return;
+            try {
+                await navigator.clipboard.writeText(gapMarkdown);
+                const b = document.getElementById('copyBtn');
+                b.textContent = 'Copied ✓';
+                setTimeout(() => b.textContent = 'Copy Markdown', 1500);
+            } catch (e) {}
         }
 
         async function uploadPDF() {
@@ -672,6 +899,72 @@ async def chat_completions(request: ChatCompletionRequest):
         id=completion_id,
         created=created,
         choices=[Choice(message=ChoiceMessage(content=answer))],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Knowledge Gap Finder Endpoint (Multi-Agent Literature Review)
+# ---------------------------------------------------------------------------
+@app.post("/v1/gap-report")
+async def gap_report(request: GapReportRequest):
+    """
+    Run the Knowledge Gap Finder for a research topic and stream Server-Sent Events:
+      {"type": "queued"} -> {"type": "progress", ...}* -> {"type": "report", "markdown": ...}
+    or {"type": "error", "message": ...}. Shares the inference lock with chat so the
+    local model handles one job at a time.
+    """
+    topic = request.topic.strip()
+    cancelled = threading.Event()
+
+    async def _event_stream() -> AsyncGenerator[str, None]:
+        global active_queue_count
+        active_queue_count += 1
+        yield f"data: {json.dumps({'type': 'queued', 'position': active_queue_count})}\n\n"
+        try:
+            async with inference_lock:
+                print(f"[Queue] Gap report started for topic: '{topic[:60]}'", flush=True)
+                loop = asyncio.get_running_loop()
+                events: asyncio.Queue = asyncio.Queue()
+                done = object()
+
+                def _worker():
+                    # Runs the blocking LLM pipeline off the event loop so the server stays responsive
+                    try:
+                        for ev in gap_graph.run_stream(
+                            topic, max_papers=request.max_papers, include_local=request.include_local
+                        ):
+                            if cancelled.is_set():  # client disconnected: stop at the next step
+                                print("[Queue] Gap report cancelled by client.", flush=True)
+                                break
+                            loop.call_soon_threadsafe(events.put_nowait, ev)
+                    except Exception as exc:
+                        print(f"[!] Gap report failed: {exc}", flush=True)
+                        loop.call_soon_threadsafe(
+                            events.put_nowait, {"type": "error", "message": f"Gap report failed: {exc}"}
+                        )
+                    finally:
+                        loop.call_soon_threadsafe(events.put_nowait, done)
+
+                worker = loop.run_in_executor(None, _worker)
+                while True:
+                    try:
+                        ev = await asyncio.wait_for(events.get(), timeout=15)
+                    except asyncio.TimeoutError:
+                        yield ": keepalive\n\n"  # keeps proxies/tunnels from closing idle streams
+                        continue
+                    if ev is done:
+                        break
+                    yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                await worker
+        finally:
+            cancelled.set()
+            active_queue_count = max(0, active_queue_count - 1)
+            print(f"[Queue] Gap report finished (Queue depth remaining: {active_queue_count})", flush=True)
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
 
 

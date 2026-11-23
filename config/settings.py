@@ -72,3 +72,17 @@ STRICT FORMATTING RULES:
 """
 
 CHEM_AGENT_MODEL_NAME = "chem-rag-agent"
+
+# ─── Knowledge Gap Finder ────────────────────────────────────────────────────
+GAP_MAX_PAPERS = int(os.getenv("GAP_MAX_PAPERS", "15"))       # OpenAlex abstracts read per run
+GAP_NUM_QUERIES = int(os.getenv("GAP_NUM_QUERIES", "4"))      # search queries generated in Phase 1
+OPENALEX_PER_QUERY = int(os.getenv("OPENALEX_PER_QUERY", "10"))
+GAP_LOCAL_SECTIONS = int(os.getenv("GAP_LOCAL_SECTIONS", "3"))  # uploaded-PDF sections added
+# Uploaded-PDF sections must be clearly on-topic (nomic-embed: on-topic ~0.75+, off-topic ~0.55-0.62)
+GAP_LOCAL_MIN_SIM = float(os.getenv("GAP_LOCAL_MIN_SIM", "0.70"))
+
+GAP_SYSTEM_PROMPT = """\
+You are a meticulous research analyst performing a systematic literature review. \
+You only state what the provided paper data supports, you cite paper IDs exactly as given, \
+and when asked for JSON you output valid JSON only, with no commentary.
+"""
