@@ -1,12 +1,25 @@
-# ─── RAG Pipeline for Scientific Paper Q&A ─────────────────────────
+# ─── Agentic RAG Stack for Chemistry Papers ─────────────────────────
 # Core
-pymupdf==1.28.2
-python-dotenv>=1.0
-requests>=2.31
+pymupdf>=1.24.0
+pdf2image>=1.17.0
+pillow>=10.0.0
+python-dotenv>=1.0.0
+requests>=2.31.0
 
-# Vector Store
-chromadb==1.5.9
-python-dateutil==2.9.0.post0
+# Vector Store & Embeddings
+chromadb>=0.5.0
+python-dateutil>=2.9.0
 
-# UI
-streamlit==1.64.0
+# Agentic Orchestration (LangGraph)
+langgraph>=0.2.0
+langchain-core>=0.3.0
+
+# API Server (FastAPI + OpenAI Compatibility)
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+pydantic>=2.9.0
+
+# UI (Streamlit fallback)
+streamlit>=1.40.0
+
